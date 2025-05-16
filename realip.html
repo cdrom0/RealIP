@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>WebRTC IP Discovery</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 2rem;
+      line-height: 1.5;
+    }
+    h1 {
+      margin-bottom: 1rem;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      max-width: 600px;
+    }
+    th, td {
+      border: 1px solid #999;
+      padding: 0.5rem 1rem;
+      text-align: left;
+    }
+    th {
+      background: #eee;
+    }
+    caption {
+      caption-side: bottom;
+      font-size: 0.9rem;
+      color: #555;
+      padding-top: 0.5rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>Detected IP Addresses via WebRTC</h1>
+  <table id="ipTable">
+    <thead>
+      <tr>
+        <th>IP Address</th>
+        <th>Port</th>
+        <th>Protocol</th>
+        <th>Candidate Type</th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- Rows will be inserted here -->
+    </tbody>
+    <caption>Uses STUN server stun.l.google.com:19302 for public IPs.</caption>
+  </table>
+
+  <script>
+    async function discoverIPs() {
+      const results = [];
+      // Use a STUN server to also get srflx (public) candidates
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' }
+        ]
+      });
+      // create a dummy data channel to start ICE gathering
+      pc.createDataChannel('dummy');
+
+      pc.onicecandidate = (evt) => {
+        if (!evt.candidate) {
+          // done gathering
+          pc.close();
+          displayResults(results);
+          return;
+        }
+        const cand = evt.candidate.candidate;
+        // split into parts: candidate:foundation component protocol priority ip port typ type ...
+        const parts = cand.split(' ');
+        const ip       = parts[4];
+        const port     = parts[5];
+        const protocol = parts[2];
+        const type     = parts[7];
+        // dedupe by IP+port+type+protocol
+        const key = [ip, port, protocol, type].join('|');
+        if (!results.some(r => [r.ip, r.port, r.protocol, r.type].join('|') === key)) {
+          results.push({ ip, port, protocol, type });
+        }
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+    }
+
+    function displayResults(entries) {
+      const tbody = document.querySelector('#ipTable tbody');
+      if (entries.length === 0) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 4;
+        td.textContent = 'No candidates found.';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        return;
+      }
+      entries.forEach(({ ip, port, protocol, type }) => {
+        const tr = document.createElement('tr');
+        [ip, port, protocol, type].forEach(text => {
+          const td = document.createElement('td');
+          td.textContent = text;
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+    }
+
+    // Kick it off on load
+    window.addEventListener('load', discoverIPs);
+  </script>
+</body>
+</html>
